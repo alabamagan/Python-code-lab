@@ -31,7 +31,7 @@ class FilteredProjection(object):
         x -= N//2
         y -= N//2
 
-        im = interp.interp2d(x, y, image, fill_value=0, bounds_error=False, kind='linear')
+        im = interp.RegularGridInterpolator((x, y), image, fill_value=0, bounds_error=False)
 
         T, THETA = np.meshgrid(t, thetas)
         T = T+1E-8
@@ -64,8 +64,8 @@ class FilteredProjection(object):
         if FOV is None:
             FOV = np.int(np.sqrt(sino.shape[0]**2/2.)/2.)
         out = np.zeros([FOV*2, FOV*2])
-        x = np.arange(FOV*2)-FOV/2
-        y = np.arange(FOV*2)-FOV/2
+        x = np.arange(FOV*2)-FOV
+        y = np.arange(FOV*2)-FOV
         x, y = np.meshgrid(x, y)
 
         # Filtering
@@ -78,8 +78,11 @@ class FilteredProjection(object):
 
         # G_theta(t)
         ifftsino_r = ifft(fftshift(fftsino, 1), axis=1)
-        ifftsino = interp.interp2d(np.linspace(-sino.shape[1]/2, sino.shape[1]/2-1, sino.shape[1]),
-                                   thetas,  ifftsino_r.real)
+        ifftsino = interp.RegularGridInterpolator((thetas, np.linspace(-sino.shape[1]/2, sino.shape[1]/2-1, sino.shape[1])),
+                                                  ifftsino_r.real,
+                                                  bounds_error=False,
+                                                  fill_value=0
+                                                  )
 
         pts = zip(x.flatten(), y.flatten())
         arguments = [[ifftsino, thetas]+list(p) for p in pts]
@@ -102,54 +105,62 @@ class FilteredProjection(object):
         # Intergration
         for i, x in enumerate(pool.map(FilteredProjection._backwardIntergrate, arguments)):
             # row major
-            X = i / out.shape[1]
-            Y = i % out.shape[1]
+            X = i % out.shape[1]
+            Y = i / out.shape[1]
+            print X, Y
             out[X, Y] = x
 
         return out
 
     @staticmethod
     def _forwardIntergrate(a):
-        # from scipy.integrate import quad
-        # import numpy as np
         interpobject, pt = a
         t_i, theta_i, z_u, z_l = pt
 
         zs = np.linspace(z_l, z_u, int(np.ceil(z_u-z_l)))
-        l = lambda z: interpobject(z*np.sin(theta_i) + t_i*np.cos(theta_i), -z*np.cos(theta_i) + t_i*np.sin(theta_i))
-        return np.sum([l(z) for z in zs])
+        pts = np.array(zip(zs*np.sin(theta_i)+t_i*np.cos(theta_i), -zs*np.cos(theta_i)+t_i*np.sin(theta_i)))
+        return np.sum(interpobject(pts)*int(np.ceil(z_u-z_l)/(z_u-z_l)))
 
     @staticmethod
     def _backwardIntergrate(a):
         interpobject, thetas, X, Y,  = a
+
         # I(x, y) = sum_\theta G(x cos \theta + y sin \theta, \theta)
-        l = lambda the: interpobject(X * np.cos(the) + Y * np.sin(the), the)
-        return np.sum([l(t)/2/np.pi for t in thetas])/len(thetas)
+        XX = X * np.cos(thetas) + Y * np.sin(thetas)
+        return np.sum(interpobject(np.array(zip(thetas, XX))))/2/np.pi/len(thetas)
 
 
 
 def TestForward():
     import matplotlib.pyplot as plt
+    from skimage.transform import radon, iradon, resize
     from imageio import imread
-    # gt = imread("../Materials/gt.tif")
-    gt = np.ones([256, 256])
-    gt[120:150, 200:240]=50
-    gt[35:140, 35:140]=55
+    gt = imread("../Materials/gt.tif")
+    gt = resize(gt, [256, 256])
+    # gt = np.ones([256, 256])
+    # gt[120:150, 200:240]=50
+    # gt[35:140, 35:140]=55
 
     # Create square phantom
     N=gt.shape[0]
     samplerange = np.int(np.sqrt(2*(N/2)**2))
-    radon = FilteredProjection.forward(gt,
+    sino  = FilteredProjection.forward(gt,
                                        np.linspace(0, 2*np.pi, 2*N),
                                        np.linspace(-samplerange+0.5, samplerange-0.5, int(np.ceil(samplerange*2))))
 
-    np.save("../Materials/radon.np", radon)
+    # sino2 = radon(gt, np.rad2deg(np.linspace(0, 2*np.pi, 2*N)))
+    #
+    # fig, subplots = plt.subplots(1, 3)
+    # subplots[0].imshow(sino)
+    # subplots[1].imshow(sino2.T)
+    # plt.show()
+    np.save("../Materials/radon_2.np", sino)
 
 def TestBackward():
-    sino = np.load("../Materials/radon.np.npy")
+    sino = np.load("../Materials/radon_2.np.npy")
 
     thetas = np.linspace(0, 2*np.pi, 512)
-    out = FilteredProjection.backward(sino, thetas)
+    out = FilteredProjection.backward(sino, thetas, 128)
 
     plt.imshow(out)
     plt.show()
