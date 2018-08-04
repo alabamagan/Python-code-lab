@@ -152,14 +152,14 @@ if __name__ == '__main__':
     im = imread('../../Materials/lena_gray.png')[:,:,0]
 
     # H_0 = Downsample(None)
-    H_0 = Downsample(np.array([0, 0.5]))
+    H_0 = Downsample(np.array([-0.5, 0]))
     # out = H_0._core_funct/ion(np.fft.fftshift(np.fft.fft2(im)))
     out = H_0.run(im)
 
     # print out.shape
     # plt.scatter(out[:,:,0].flatten(), out[:,:,1].flatten())
     # plt.imshow(out[:,:,0])
-    plt.imshow(np.fft.ifft2(np.fft.fftshift(out)).real)
+    plt.imshow(np.fft.ifft2(np.fft.fftshift(out)).real)           # Some times need fftshift, sometimes doesn't
     # plt.imshow(np.fft.ifft2(out).real)
     # plt.imshow(np.abs(out))
     plt.show()

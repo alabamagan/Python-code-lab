@@ -2,13 +2,14 @@ import numpy as np
 from GeometricMasks import ring_mask, pie_section_mask
 from numpy.fft import ifft2, fft2, fftshift, ifftshift
 
-class PolarContourletTransform(object):
+class CircularContourletTransform(object):
     def __init__(self, level=4):
         self.level=level
         self.pmasks = None
         self.rmasks = None
 
     def _forwardTransform(self, input):
+
         assert isinstance(input, np.ndarray), "Input must be np array!"
 
         s = list(input.shape)
@@ -41,7 +42,6 @@ class PolarContourletTransform(object):
         return outdict
 
 
-
     def _backwardsTransform(self, input):
         assert isinstance(input, np.ndarray), "Input must be np array!"
 
@@ -49,22 +49,30 @@ class PolarContourletTransform(object):
 if __name__ == '__main__':
     from imageio import imread
     import matplotlib.pyplot as plt
+    import SimpleITK as sitk
 
-    gt = imread("../Materials/gt.tif")
-    im = imread("../Materials/s0.tif")
+    readnii = lambda url: sitk.GetArrayFromImage(sitk.ReadImage(url))
+    # gt = imread("../Materials/gt.tif")
+    # im = imread("../Materials/s0.tif")
+    im = readnii('../Materials/LCTSC-Test-S3-201_FBP_128.nii.gz')[-1].astype('int32')
+    im[im==-3024]=-1000
+    gt = readnii('../Materials/LCTSC-Test-S3-201ff.nii.gz')[-1].astype('int32')
 
-    transformer = PolarContourletTransform(4)
+    transformer = CircularContourletTransform(4)
     a1 = transformer._forwardTransform(gt)
     a2 = transformer._forwardTransform(im)
 
+    fig1, (ax1, ax2)=plt.subplots(1, 2)
+    ax1.imshow(gt, cmap="Greys_r", vmin=-1000, vmax=1000)
+    ax2.imshow(im, cmap="Greys_r", vmin=-1000, vmax=1000)
     fig, figarr = plt.subplots(len(a1.keys())*2, len(a1[0].keys()))
     for ki in a1:
         vali = a1[ki]
         for kj in vali:
             valj = vali[kj]
-            figarr[2*ki, kj].imshow(np.real(valj), cmap='jet', vmin=-200./(ki+1), vmax=200./(ki+1))
+            figarr[2*ki, kj].imshow(np.abs(valj), cmap='jet', vmin=-200./(ki+1), vmax=200./(ki+1))
             figarr[2*ki, kj].axis('off')
-            figarr[2*ki + 1, kj].imshow(np.real(a2[ki][kj]), cmap='jet', vmin=-200./(ki+1), vmax=200./(ki+1))
+            figarr[2*ki + 1, kj].imshow(np.abs(a2[ki][kj]), cmap='jet', vmin=-200./(ki+1), vmax=200./(ki+1))
             figarr[2*ki + 1, kj].axis('off')
     mnt = plt.get_current_fig_manager()
     mnt.window.showMaximized()

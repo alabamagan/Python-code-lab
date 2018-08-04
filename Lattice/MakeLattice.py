@@ -21,7 +21,7 @@ class Lattice2D(object):
 if __name__ == '__main__':
     B1 = np.array([[1,0],[0,1]])
     D0 = np.array([[1, 1], [-1, 1]])
-    D0 = np.linalg.inv(D0).T
+    # D0 = np.linalg.inv(D0).T
     B2 = B1.dot(D0)
 
     test = Lattice2D()
@@ -32,7 +32,7 @@ if __name__ == '__main__':
 
     fig, ax = plt.subplots(1, 1)
     ax.scatter(lattice1[:,0], lattice1[:,1])
-    ax.scatter(lattice2[:,0], lattice2[:,1], s=4)
+    ax.scatter(lattice2[:,0]+1, lattice2[:,1], s=4)
     ax.spines['left'].set_position('center')
     ax.spines['right'].set_color('none')
     ax.spines['bottom'].set_position('center')
