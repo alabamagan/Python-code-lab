@@ -7,6 +7,8 @@ class FilterBankNodeBase(object):
     def __init__(self, inNode=None):
         self._input_node = None
         self._referencing_node = []
+        self._core_matrix = None
+        self._coset_vectors = []
         self.hook_input(inNode)
         pass
 
@@ -35,6 +37,23 @@ class FilterBankNodeBase(object):
 
     def input(self):
         return self._input_node
+
+    def _calculate_coset(self):
+        assert not self._core_matrix is None
+
+        M = int(np.abs(np.linalg.det(self._core_matrix)))
+        inv_coremat = np.linalg.inv(self._core_matrix.T)
+
+        # For 2D case
+        for i in xrange(M):
+            for j in xrange(M):
+                # Costruct coset vector
+                v = np.array([i,j], dtype=np.float)
+                f = inv_coremat.dot(v)
+                if np.all((0<=f) & (f < 1.)):
+                    self._coset_vectors.append(v.astype('int'))
+
+
 
     @staticmethod
     def periodic_modulus_2d(arr, xrange, yrange):
@@ -87,12 +106,11 @@ class FilterBankNodeBase(object):
         return arr
 
 class Downsample(FilterBankNodeBase):
-    def __init__(self, coset_vector, inNode=None):
+    def __init__(self, inNode=None):
         FilterBankNodeBase.__init__(self, inNode)
-
-        self._coset_vector = coset_vector
         self._core_matrix = np.array([[1, 1],
                                       [1,  -1]])
+        self._calculate_coset()
 
     def _core_function(self, inflow):
         assert isinstance(inflow, np.ndarray), "Input must be numpy array"
@@ -111,20 +129,19 @@ class Downsample(FilterBankNodeBase):
         omega = np.stack([u, v], axis=-1)
 
         # Number of bands for the given core matrix to achieve critical sampling.
-        M = np.abs(np.linalg.det(self._core_matrix))
-
-        omega = omega.dot(np.linalg.inv(self._core_matrix.T))
-        if not self._coset_vector is None:
-            omega = omega - self._coset_vector.T * s
+        omega = [(omega - 2*np.pi*v).dot(np.linalg.inv(self._core_matrix.T)) for v in self._coset_vectors]
 
         # Periodic modulus
-        omega = FilterBankNodeBase.periodic_modulus_2d(omega, [-s//2, s//2-1], [-s//2, s//2-1])
+        omega = [FilterBankNodeBase.periodic_modulus_2d(o, [-s//2, s//2-1], [-s//2, s//2-1]) for o in omega]
         outflow = np.zeros(self._inflow.shape, dtype=self._inflow.dtype)
 
         for i in xrange(outflow.shape[0]):
             for j in xrange(outflow.shape[1]):
-                if omega[i,j, 0] % 1 == 0 and omega[i,j,1] % 1 == 0:
-                    outflow[i,j] = self._inflow[int(omega[i,j,0] + s//2), int(omega[i,j,1] + s//2)]
+                for o in omega:
+                    if o[i,j, 0] % 1 == 0 and o[i,j,1] % 1 == 0:
+                        outflow[i,j] += self._inflow[int(o[i,j,0] + s//2),
+                                                     int(o[i,j,1] + s//2)] \
+                                        / float(len(self._coset_vectors))
 
         return outflow
 
@@ -136,6 +153,7 @@ class Upsample(FilterBankNodeBase):
         self._coset_vector = coset_vector
         self._core_matrix = np.array([[1, 1],
                                       [1,  -1]])
+        self._calculate_coset()
 
     def _core_function(self, inflow):
         assert isinstance(inflow, np.ndarray), "Input must be numpy array"
@@ -152,7 +170,8 @@ if __name__ == '__main__':
     im = imread('../../Materials/lena_gray.png')[:,:,0]
 
     # H_0 = Downsample(None)
-    H_0 = Downsample(np.array([-0.5, 0]))
+    # H_0 = Downsample(np.array([-0.5, 0]))
+    H_0 = Downsample()
     # out = H_0._core_funct/ion(np.fft.fftshift(np.fft.fft2(im)))
     out = H_0.run(im)
 
