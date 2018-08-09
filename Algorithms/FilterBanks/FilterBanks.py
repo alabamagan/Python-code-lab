@@ -28,6 +28,12 @@ class FilterBankNodeBase(object):
         else:
             return self._core_function(self._input_node.run(input))
 
+    def set_core_matrix(self, mat):
+        assert isinstance(mat, np.ndarray)
+
+        self._core_matrix = mat
+        self._calculate_coset()
+
     def hook_input(self, filter):
         if filter == None:
             return
@@ -41,12 +47,14 @@ class FilterBankNodeBase(object):
     def _calculate_coset(self):
         assert not self._core_matrix is None
 
+        self._coset_vectors = []
         M = int(np.abs(np.linalg.det(self._core_matrix)))
-        inv_coremat = np.linalg.inv(self._core_matrix.T)
+        inv_coremat = np.linalg.inv(self._core_matrix.T)    # coset vectors always calculated in Fourier space
+        print M
 
         # For 2D case
-        for i in xrange(M):
-            for j in xrange(M):
+        for i in xrange(-M, M):
+            for j in xrange(-M, M):
                 # Costruct coset vector
                 v = np.array([i,j], dtype=np.float)
                 f = inv_coremat.dot(v)
@@ -105,11 +113,13 @@ class FilterBankNodeBase(object):
         arr[np.invert(yrange[1] <arr[:,:,1] < yrange[1])] = 0
         return arr
 
+
 class Downsample(FilterBankNodeBase):
     def __init__(self, inNode=None):
         FilterBankNodeBase.__init__(self, inNode)
-        self._core_matrix = np.array([[1, 1],
-                                      [1,  -1]])
+        self._outflow = None
+        self._core_matrix = np.array([[1,  1],
+                                      [1, -1]])
         self._calculate_coset()
 
     def _core_function(self, inflow):
@@ -119,66 +129,138 @@ class Downsample(FilterBankNodeBase):
 
         # if not complex, assume x-space input, do fourier transform
         if not np.any(np.iscomplex(inflow)):
-            self._inflow = np.fft.fftshift(np.fft.fft2(inflow))
+            # it is also necessary to shift the origin to the center of the image.
+            self._inflow = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(inflow)))
         else:
             self._inflow = np.copy(inflow)
 
         s = inflow.shape[0]
 
         u, v = np.meshgrid(np.arange(s) - s//2, np.arange(s)-s//2)
+        self._uv = np.stack([u, v], axis=-1)    # temp
         omega = np.stack([u, v], axis=-1)
 
         # Number of bands for the given core matrix to achieve critical sampling.
-        omega = [(omega - 2*np.pi*v).dot(np.linalg.inv(self._core_matrix.T)) for v in self._coset_vectors]
+        M = int(np.abs(np.linalg.det(self._core_matrix)))
+
+        # Bands are differed by coset vector calculated from the transpose of the core_matrix
+        omega = [(omega - s*v).dot(np.linalg.inv(self._core_matrix).T) for v in self._coset_vectors]
 
         # Periodic modulus
         omega = [FilterBankNodeBase.periodic_modulus_2d(o, [-s//2, s//2-1], [-s//2, s//2-1]) for o in omega]
-        outflow = np.zeros(self._inflow.shape, dtype=self._inflow.dtype)
 
-        for i in xrange(outflow.shape[0]):
-            for j in xrange(outflow.shape[1]):
-                for o in omega:
+        # N bands of output
+        outflow = [np.zeros(self._inflow.shape, dtype=self._inflow.dtype)
+                   for i in xrange(M)]
+        for i in xrange(inflow.shape[0]):
+            for j in xrange(inflow.shape[1]):
+                for k, o in enumerate(omega):
                     if o[i,j, 0] % 1 == 0 and o[i,j,1] % 1 == 0:
-                        outflow[i,j] += self._inflow[int(o[i,j,0] + s//2),
-                                                     int(o[i,j,1] + s//2)] \
-                                        / float(len(self._coset_vectors))
+                        outflow[k][i,j] = self._inflow[int(o[i,j,0] + s//2),
+                                                       int(o[i,j,1] + s//2)] \
+                                          / float(M)
 
-        return outflow
+
+        self._omega = omega # temp
+        self._outflow = np.stack(outflow, -1)
+        return self._outflow
+
+    def get_lower_subband(self):
+        assert not self._outflow is None
+        return self._outflow[:,:,0]
+
+    def get_higher_subband(self):
+        assert not self._outflow is None
+        return self._outflow[:,:,-1]
+
+    def get_subband(self, index):
+        assert not self._outflow is None
+        assert index < self._outflow.shape[-1]
+        return self._outflow[:,:,int(index)]
 
 
 class Upsample(FilterBankNodeBase):
-    def __init__(self, coset_vector, inNode=None):
+    def __init__(self, inNode=None):
         FilterBankNodeBase.__init__(self, inNode)
 
-        self._coset_vector = coset_vector
-        self._core_matrix = np.array([[1, 1],
-                                      [1,  -1]])
+        self._core_matrix = np.array([[1,  1],
+                                      [1, -1]])
         self._calculate_coset()
 
     def _core_function(self, inflow):
         assert isinstance(inflow, np.ndarray), "Input must be numpy array"
-        assert inflow.ndim == 2
+        assert inflow.ndim == 3
         assert inflow.shape[0] == inflow.shape[1]
+        # assert np.all(np.iscomplex(inflow))
 
+        print inflow.shape
+        self._inflow = np.copy(inflow)
 
+        s = inflow.shape[0]
 
+        u, v = np.meshgrid(np.arange(s) - s//2, np.arange(s)-s//2)
+        omega = np.stack([u, v], axis=-1)
+
+        # Bands are differed by coset vector calculated from the transpose of the core_matrix
+        omega = [(omega - s*v).dot(self._core_matrix.T) for v in self._coset_vectors]
+
+        # Periodic modulus
+        omega = [FilterBankNodeBase.periodic_modulus_2d(o, [-s//2, s//2-1], [-s//2, s//2-1]) for o in omega]
+
+        # Number of bands for the given core matrix to achieve critical sampling.
+        M = int(np.abs(np.linalg.det(self._core_matrix)))
+
+        outflow = np.zeros([self._inflow.shape[0], self._inflow.shape[1]])
+        for i in xrange(inflow.shape[0]):
+            for j in xrange(inflow.shape[1]):
+                for m in xrange(M):
+                    for k, o in enumerate(omega):
+                        if o[i,j, 0] % 1 == 0 and o[i,j,1] % 1 == 0:
+                            outflow[i,j] += self._inflow[int(o[i,j,0] + s//2),
+                                                         int(o[i,j,1] + s//2), m]
+
+        self._outflow = outflow
+        return self._outflow
+
+    def _calculate_coset(self):
+        assert not self._core_matrix is None
+
+        self._core_matrix = self._core_matrix.T
+        super(Upsample, self)._calculate_coset()
+        self._core_matrix = self._core_matrix.T
 
 if __name__ == '__main__':
     from imageio import imread
     import matplotlib.pyplot as plt
+    from numpy.fft import fftshift, fft2, ifft2, ifftshift
 
     im = imread('../../Materials/lena_gray.png')[:,:,0]
+    s_fftim = fftshift(fft2(ifftshift(im))) # shift the input so that origin is at center of image
 
-    # H_0 = Downsample(None)
-    # H_0 = Downsample(np.array([-0.5, 0]))
+
     H_0 = Downsample()
-    # out = H_0._core_funct/ion(np.fft.fftshift(np.fft.fft2(im)))
-    out = H_0.run(im)
+    G_0 = Upsample()
+    # G_0.hook_input(H_0)
+    out = H_0.run(s_fftim)
+    # out = G_0.run(s_fftim)
+
+    M = H_0._outflow.shape[-1]
+    ncol=2
+    fig, axs = plt.subplots(M / ncol, ncol)
+    for i in xrange(M):
+        if M <= ncol:
+            axs[i].imshow(ifft2(fftshift(H_0._outflow[:,:,i])).real)
+            # axs[i].imshow(np.abs(H_0._outflow[:,:,i]), vmin=0, vmax=2500)
+        else:
+            axs[i//ncol, i%ncol].imshow(ifft2(fftshift(H_0._outflow[:,:,i])).real)
+            # axs[i//ncol, i%ncol].imshow(np.abs(H_0._outflow[:,:,i]), vmin=0, vmax=2500)
+    plt.show()
+
 
     # print out.shape
     # plt.scatter(out[:,:,0].flatten(), out[:,:,1].flatten())
     # plt.imshow(out[:,:,0])
-    plt.imshow(np.fft.ifft2(np.fft.fftshift(out)).real)           # Some times need fftshift, sometimes doesn't
+    plt.imshow(ifft2(fftshift(out)).real)           # Some times need fftshift, sometimes doesn't
     # plt.imshow(np.fft.ifft2(out).real)
-    # plt.imshow(np.abs(out))
+    # plt.imshow(np.abs(out), vmin=0, vmax=2500)
     plt.show()
