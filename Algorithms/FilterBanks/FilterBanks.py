@@ -50,7 +50,6 @@ class FilterBankNodeBase(object):
         self._coset_vectors = []
         M = int(np.abs(np.linalg.det(self._core_matrix)))
         inv_coremat = np.linalg.inv(self._core_matrix.T)    # coset vectors always calculated in Fourier space
-        print M
 
         # For 2D case
         for i in xrange(-M, M):
@@ -64,38 +63,42 @@ class FilterBankNodeBase(object):
 
 
     @staticmethod
-    def periodic_modulus_2d(arr, xrange, yrange):
-        """
+    def periodic_modulus_2d(arr, x_range, y_range):
+        r"""
         Description
-        -----------
+        ===========
 
         Modular the range of the input 2D array of vector to desired range [a, b].
         The input shape should by (X, Y, 2).
 
-        f(y)    = y                 if  y \in [a, b]
-                = y - a - n(b-a+1)  if  otherwise       for n \in \mathbb{Z}
+        .. math::
+            f(y) = \begin{cases}
+                    y & \\text{if}  & y \in [a, b] \\
+                    y-a-n(b-a+1) & \\text{if} & \\text{otherwise}
+                   \end{cases}
 
-        In general, [a, b] is a one of the partitions of \mathbb{Z} denoted as:
-            Part(Z;[a, b]) = \{[a-n(b-a+1), b-n(b-a+1)]; n\in \mathbb{Z}\}
 
-        When n = 0, the element range is [a, b]. The idea is to find the closest partition,
+        In general, :math:`[a, b]` is a one of the partitions of :math:`\mathbb{Z}` denoted as:
+            :math:`\text{Par}(Z;[a, b]) = \{[a-n(b-a+1), b-n(b-a+1)]; n\in \mathbb{Z}\}`
+
+        When :math:`n = 0`, the element range is :math:`[a, b]`. The idea is to find the closest partition,
         defined by n, and translate the number to its unit cell, then do modulus.
 
         """
         assert isinstance(arr, np.ndarray)
         assert arr.ndim==3, "Array shape should be (X_shape, Y_shape, 2)"
         assert arr.shape[2] == 2, "Array shape should be (X_shape, Y_shape, 2)"
-        assert len(xrange) == len(yrange) == 2
-        assert xrange[1] > xrange[0] and yrange[1] > yrange[0]
+        assert len(x_range) == len(y_range) == 2
+        assert x_range[1] > x_range[0] and y_range[1] > y_range[0]
 
-        mx = np.invert((xrange[0] <= arr[:,:,0]).astype('bool') & (arr[:,:,0] <= xrange[1]).astype('bool'))
-        my = np.invert((yrange[0] <= arr[:,:,1]).astype('bool') & (arr[:,:,1] <= yrange[1]).astype('bool'))
+        mx = np.invert((x_range[0] <= arr[:, :, 0]).astype('bool') & (arr[:, :, 0] <= x_range[1]).astype('bool'))
+        my = np.invert((y_range[0] <= arr[:, :, 1]).astype('bool') & (arr[:, :, 1] <= y_range[1]).astype('bool'))
         arx = arr[:,:,0]
         ary = arr[:,:,1]
-        rx = xrange[1] - xrange[0] + 1
-        ry = yrange[1] - yrange[0] + 1
-        Nx = np.floor((arx[mx] - xrange[0])/rx)
-        Ny = np.floor((ary[my] - yrange[0])/ry)
+        rx = x_range[1] - x_range[0] + 1
+        ry = y_range[1] - y_range[0] + 1
+        Nx = np.floor((arx[mx] - x_range[0]) / rx)
+        Ny = np.floor((ary[my] - y_range[0]) / ry)
 
         arx[mx] = arx[mx] - Nx*rx
         ary[my] = ary[my] - Ny*ry
@@ -109,8 +112,8 @@ class FilterBankNodeBase(object):
         assert len(xrange) == len(yrange) == 2
         assert xrange[1] > xrange[0] and yrange[1] > yrange[0]
 
-        arr[np.invert(xrange[0] <arr[:,:,0] < xrange[1])] = 0
-        arr[np.invert(yrange[1] <arr[:,:,1] < yrange[1])] = 0
+        arr[np.invert((xrange[0] <= arr[:,:,0]) & (arr[:,:,0] <= xrange[1]))] = 0
+        arr[np.invert((yrange[1] <= arr[:,:,1]) & (arr[:,:,1] <= yrange[1]))] = 0
         return arr
 
 
@@ -123,6 +126,14 @@ class Downsample(FilterBankNodeBase):
         self._calculate_coset()
 
     def _core_function(self, inflow):
+        r"""Decimator core function.
+
+        The decimation follows the equation:
+
+        .. math ::
+            X_k(\omega)=\frac{1}{|\text{det}(M)|} \sum_{m\in \mathcal{N} (M^T)} \exp{iM^{-T}}
+
+        """
         assert isinstance(inflow, np.ndarray), "Input must be numpy array"
         assert inflow.ndim == 2
         assert inflow.shape[0] == inflow.shape[1]
@@ -193,16 +204,16 @@ class Upsample(FilterBankNodeBase):
         assert inflow.shape[0] == inflow.shape[1]
         # assert np.all(np.iscomplex(inflow))
 
-        print inflow.shape
         self._inflow = np.copy(inflow)
-
+        self._calculate_freq_support()
         s = inflow.shape[0]
 
         u, v = np.meshgrid(np.arange(s) - s//2, np.arange(s)-s//2)
+        self._uv = np.stack([u, v], axis=-1)    # temp
         omega = np.stack([u, v], axis=-1)
 
         # Bands are differed by coset vector calculated from the transpose of the core_matrix
-        omega = [(omega - s*v).dot(self._core_matrix.T) for v in self._coset_vectors]
+        omega = [(omega).dot(self._core_matrix.T) + s*v  for v in self._coset_vectors]
 
         # Periodic modulus
         omega = [FilterBankNodeBase.periodic_modulus_2d(o, [-s//2, s//2-1], [-s//2, s//2-1]) for o in omega]
@@ -210,24 +221,55 @@ class Upsample(FilterBankNodeBase):
         # Number of bands for the given core matrix to achieve critical sampling.
         M = int(np.abs(np.linalg.det(self._core_matrix)))
 
-        outflow = np.zeros([self._inflow.shape[0], self._inflow.shape[1]])
+        outflow = np.zeros([self._inflow.shape[0], self._inflow.shape[1]], dtype=np.complex)
         for i in xrange(inflow.shape[0]):
             for j in xrange(inflow.shape[1]):
                 for m in xrange(M):
                     for k, o in enumerate(omega):
+                        # if m == 0:
+                        #     continue
                         if o[i,j, 0] % 1 == 0 and o[i,j,1] % 1 == 0:
-                            outflow[i,j] += self._inflow[int(o[i,j,0] + s//2),
-                                                         int(o[i,j,1] + s//2), m]
-
+                            try:
+                                outflow[i,j] += self._inflow[int(o[i,j,0] + s//2),
+                                                             int(o[i,j,1] + s//2), m] * \
+                                                self._support[m][i, j]
+                            except:
+                                pass
+        self._omega = omega # temp
         self._outflow = outflow
         return self._outflow
 
     def _calculate_coset(self):
+        """
+        Description
+        -----------
+          Expression for up-sampling/interpolation of the input signal is given by:
+
+          t-domain.
+
+        :return:
+        """
         assert not self._core_matrix is None
 
         self._core_matrix = self._core_matrix.T
         super(Upsample, self)._calculate_coset()
         self._core_matrix = self._core_matrix.T
+
+    def _calculate_freq_support(self):
+        assert not self._inflow is None
+
+        s = self._inflow.shape[0]
+        u, v = np.meshgrid(np.arange(s) - s//2, np.arange(s)-s//2)
+        sup_1 = (self._core_matrix[0, 0] * u + self._core_matrix[1, 0] * v < s//2) & \
+                (self._core_matrix[0, 0] * u + self._core_matrix[1, 0] * v > -s//2)
+        sup_2 = (self._core_matrix[0, 1] * u + self._core_matrix[1, 1] * v < s//2) & \
+                (self._core_matrix[0, 1] * u + self._core_matrix[1, 1] * v > -s//2)
+        support = (sup_1 & sup_2).astype('int')
+
+        M = int(np.abs(np.linalg.det(self._core_matrix)))
+        cvs = [V.dot(self._core_matrix) for V in self._coset_vectors]
+        self._support = [np.roll(np.roll(support, V[0] * s // M, axis=0), V[1] * s // M, axis=1) for V in cvs]
+
 
 if __name__ == '__main__':
     from imageio import imread
@@ -235,26 +277,36 @@ if __name__ == '__main__':
     from numpy.fft import fftshift, fft2, ifft2, ifftshift
 
     im = imread('../../Materials/lena_gray.png')[:,:,0]
-    s_fftim = fftshift(fft2(ifftshift(im))) # shift the input so that origin is at center of image
+
+    # # These phase shift operations can produce fan filter effect, but introduce the need to do fftshift
+    # x, y = np.meshgrid(np.arange(im.shape[0]), np.arange(im.shape[1]))
+    # px = np.zeros(im.shape, dtype=np.complex)
+    # px.imag = -np.pi*x
+    # px = np.exp(px)
+    # im = im*px
+
+    # shift the input so that origin is at center of image
+    s_fftim = fftshift(fft2(ifftshift(im)))
 
 
     H_0 = Downsample()
     G_0 = Upsample()
-    # G_0.hook_input(H_0)
-    out = H_0.run(s_fftim)
-    # out = G_0.run(s_fftim)
+    G_0.hook_input(H_0)
+    # out = H_0.run(s_fftim)
+    out = G_0.run(s_fftim)
 
-    M = H_0._outflow.shape[-1]
-    ncol=2
-    fig, axs = plt.subplots(M / ncol, ncol)
-    for i in xrange(M):
-        if M <= ncol:
-            axs[i].imshow(ifft2(fftshift(H_0._outflow[:,:,i])).real)
-            # axs[i].imshow(np.abs(H_0._outflow[:,:,i]), vmin=0, vmax=2500)
-        else:
-            axs[i//ncol, i%ncol].imshow(ifft2(fftshift(H_0._outflow[:,:,i])).real)
-            # axs[i//ncol, i%ncol].imshow(np.abs(H_0._outflow[:,:,i]), vmin=0, vmax=2500)
-    plt.show()
+    # M = H_0._outflow.shape[-1]
+    # ncol=2
+    # fig, axs = plt.subplots(M / ncol, ncol)
+    # for i in xrange(M):
+    #     if M <= ncol:
+    #         # axs[i].imshow(ifft2(fftshift(H_0._outflow[:,:,i])).real)
+    #         # axs[i].imshow(ifft2(H_0._outflow[:,:,i]).real)
+    #         axs[i].imshow(np.abs(H_0._outflow[:,:,i]), vmin=0, vmax=2500)
+    #     else:
+    #         # axs[i//ncol, i%ncol].imshow(ifft2(fftshift(H_0._outflow[:,:,i])).real)
+    #         axs[i//ncol, i%ncol].imshow(np.abs(H_0._outflow[:,:,i]), vmin=0, vmax=2500)
+    # plt.show()
 
 
     # print out.shape
@@ -262,5 +314,15 @@ if __name__ == '__main__':
     # plt.imshow(out[:,:,0])
     plt.imshow(ifft2(fftshift(out)).real)           # Some times need fftshift, sometimes doesn't
     # plt.imshow(np.fft.ifft2(out).real)
-    # plt.imshow(np.abs(out), vmin=0, vmax=2500)
+    # plt.imshow((np.abs(s_fftim)), vmin=0, vmax=3500)
+    # plt.imshow((np.abs(out)), vmin=0, vmax=3500)
     plt.show()
+    #
+    # plt.ion()
+    # plt.show()
+    # for i in xrange(len(G_0._support)):
+    #     plt.imshow(G_0._support[i])
+    #     plt.draw()
+    #     plt.pause(1)
+
+

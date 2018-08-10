@@ -19,6 +19,7 @@ class Lattice2D(object):
 
         return np.array(lattice)
 
+
 def plotTransformQuiver(d, F=5):
     fig, ax = plt.subplots(1, 1)
     X = np.array(zip(d._uv[:,:,0].flatten(), d._uv[:,:,1].flatten()))
@@ -42,6 +43,7 @@ def plotTransformQuiver(d, F=5):
 
     plt.axis('equal')
     plt.show()
+
 
 def plotScatter(d):
 
