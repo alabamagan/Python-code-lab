@@ -27,10 +27,12 @@ def plotTransformQuiver(d, F=5):
     XYX2 = np.array(zip(d._omega[1][:,:,0].flatten(), d._omega[1][:,:,1].flatten()))
 
     ax.scatter(X[:,0], X[:,1])
-    ax.scatter(XYX[:,0], XYX[:,1], s=5)
-    ax.quiver(d._uv[:,:,0].flatten()[::F], d._uv[:,:,1].flatten()[::F],
-              d._omega[0][:,:,0].flatten()[::F] - d._uv[:,:,0].flatten()[::F],
-              d._omega[0][:,:,1].flatten()[::F] - d._uv[:,:,1].flatten()[::F],
+    ax.scatter(XYX2[:,0], XYX2[:,1], s=5)
+    ax.quiver(d._uv[:,:,0].flatten()[::F], d._uv[:,:,1].flatten()[::F] + d._uv[:,:,0].flatten()[::F] * 0.05,
+              d._omega[1][:,:,0].flatten()[::F] - d._uv[:,:,0].flatten()[::F],
+              d._omega[1][:,:,1].flatten()[::F] - d._uv[:,:,1].flatten()[::F],
+              # d._omega[1][:,:,0].flatten()[::F] - d._omega[0][:,:,0].flatten()[::F],
+              # d._omega[1][:,:,1].flatten()[::F] - d._omega[0][:,:,1].flatten()[::F],
               scale=1, scale_units='xy', alpha=0.5, width=0.002)
     ax.spines['left'].set_position('center')
     ax.spines['right'].set_color('none')
@@ -50,7 +52,8 @@ def plotScatter(d):
     fig, ax = plt.subplots(1, 1)
     X = np.array(zip(d._uv[:,:,0].flatten(), d._uv[:,:,1].flatten()))
     XYX = np.array(zip(d._omega[0][:,:,0].flatten(), d._omega[0][:,:,1].flatten()))
-    XYX2 = np.array(zip(d._omega[1][:,:,0].flatten(), d._omega[1][:,:,1].flatten()))
+    XYX2 = np.array(zip(d._omega[1][:,:,0].flatten() + d._coset_vectors[1][0],
+                        d._omega[1][:,:,1].flatten() + d._coset_vectors[1][1]))
 
     ax.scatter(X[:,0], X[:,1])
     ax.scatter(XYX[:,0], XYX[:,1], s=5)
@@ -80,7 +83,8 @@ if __name__ == '__main__':
     lattice2 = test.sample_lattice(3)
 
     d = Upsample()
-    out = d.run(np.random.random([8,8, 2]))
+    d.set_core_matrix(np.array([[2, 0], [0, 1]]))
+    out = d.run(np.random.random([16,16, 2]))
 
 
     plotTransformQuiver(d, 1)

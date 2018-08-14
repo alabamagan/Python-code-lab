@@ -167,8 +167,10 @@ class Downsample(FilterBankNodeBase):
             for j in xrange(inflow.shape[1]):
                 for k, o in enumerate(omega):
                     if o[i,j, 0] % 1 == 0 and o[i,j,1] % 1 == 0:
-                        outflow[k][i,j] = self._inflow[int(o[i,j,0] + s//2),
-                                                       int(o[i,j,1] + s//2)] \
+                        # Note that the matrix are caculate in x, y convention while in numpy it has a [y, x]
+                        # convention
+                        outflow[k][i,j] = self._inflow[int(o[i,j,1] + s//2),
+                                                       int(o[i,j,0] + s//2)] \
                                           / float(M)
 
 
@@ -212,8 +214,9 @@ class Upsample(FilterBankNodeBase):
         self._uv = np.stack([u, v], axis=-1)    # temp
         omega = np.stack([u, v], axis=-1)
 
+        print self._coset_vectors
         # Bands are differed by coset vector calculated from the transpose of the core_matrix
-        omega = [(omega).dot(self._core_matrix.T) + s*v  for v in self._coset_vectors]
+        omega = [(omega).dot(self._core_matrix.T) + v for v in self._coset_vectors]
 
         # Periodic modulus
         omega = [FilterBankNodeBase.periodic_modulus_2d(o, [-s//2, s//2-1], [-s//2, s//2-1]) for o in omega]
@@ -230,8 +233,10 @@ class Upsample(FilterBankNodeBase):
                         #     continue
                         if o[i,j, 0] % 1 == 0 and o[i,j,1] % 1 == 0:
                             try:
-                                outflow[i,j] += self._inflow[int(o[i,j,0] + s//2),
-                                                             int(o[i,j,1] + s//2), m] * \
+                                # Note that the matrix are caculate in x, y convention while in numpy it has a [y, x]
+                                # convention
+                                outflow[i,j] += self._inflow[int(o[i,j,1] + s//2),
+                                                             int(o[i,j,0] + s//2), m] * \
                                                 self._support[m][i, j]
                             except:
                                 pass
@@ -259,6 +264,8 @@ class Upsample(FilterBankNodeBase):
         assert not self._inflow is None
 
         s = self._inflow.shape[0]
+
+        # Build the support with zero offset vector
         u, v = np.meshgrid(np.arange(s) - s//2, np.arange(s)-s//2)
         sup_1 = (self._core_matrix[0, 0] * u + self._core_matrix[1, 0] * v < s//2) & \
                 (self._core_matrix[0, 0] * u + self._core_matrix[1, 0] * v > -s//2)
@@ -266,9 +273,8 @@ class Upsample(FilterBankNodeBase):
                 (self._core_matrix[0, 1] * u + self._core_matrix[1, 1] * v > -s//2)
         support = (sup_1 & sup_2).astype('int')
 
-        M = int(np.abs(np.linalg.det(self._core_matrix)))
-        cvs = [V.dot(self._core_matrix) for V in self._coset_vectors]
-        self._support = [np.roll(np.roll(support, V[0] * s // M, axis=0), V[1] * s // M, axis=1) for V in cvs]
+        cvs = [V.dot(np.linalg.inv(self._core_matrix).T) for V in self._coset_vectors]
+        self._support = [np.roll(np.roll(support, int(V[0] * s), axis=1), int(V[1] * s), axis=0) for V in cvs]
 
 
 if __name__ == '__main__':
@@ -290,23 +296,25 @@ if __name__ == '__main__':
 
 
     H_0 = Downsample()
+    H_0.set_core_matrix(np.array([[2, 0], [0, 1]]))
     G_0 = Upsample()
+    G_0.set_core_matrix(np.array([[2, 0], [0, 1]]))
     G_0.hook_input(H_0)
     # out = H_0.run(s_fftim)
     out = G_0.run(s_fftim)
 
-    # M = H_0._outflow.shape[-1]
-    # ncol=2
-    # fig, axs = plt.subplots(M / ncol, ncol)
-    # for i in xrange(M):
-    #     if M <= ncol:
-    #         # axs[i].imshow(ifft2(fftshift(H_0._outflow[:,:,i])).real)
-    #         # axs[i].imshow(ifft2(H_0._outflow[:,:,i]).real)
-    #         axs[i].imshow(np.abs(H_0._outflow[:,:,i]), vmin=0, vmax=2500)
-    #     else:
-    #         # axs[i//ncol, i%ncol].imshow(ifft2(fftshift(H_0._outflow[:,:,i])).real)
-    #         axs[i//ncol, i%ncol].imshow(np.abs(H_0._outflow[:,:,i]), vmin=0, vmax=2500)
-    # plt.show()
+    M = H_0._outflow.shape[-1]
+    ncol=2
+    fig, axs = plt.subplots(M / ncol, ncol)
+    for i in xrange(M):
+        if M <= ncol:
+            # axs[i].imshow(ifft2(fftshift(H_0._outflow[:,:,i])).real)
+            # axs[i].imshow(ifft2(H_0._outflow[:,:,i]).real)
+            axs[i].imshow(np.abs(H_0._outflow[:,:,i]), vmin=0, vmax=2500)
+        else:
+            # axs[i//ncol, i%ncol].imshow(ifft2(fftshift(H_0._outflow[:,:,i])).real)
+            axs[i//ncol, i%ncol].imshow(np.abs(H_0._outflow[:,:,i]), vmin=0, vmax=2500)
+    plt.show()
 
 
     # print out.shape
@@ -316,13 +324,15 @@ if __name__ == '__main__':
     # plt.imshow(np.fft.ifft2(out).real)
     # plt.imshow((np.abs(s_fftim)), vmin=0, vmax=3500)
     # plt.imshow((np.abs(out)), vmin=0, vmax=3500)
+    # plt.imshow((np.abs(H_0._outflow[:,:,0]) + np.roll(np.abs(H_0._outflow[:,:,1]), 1)), vmin=0, vmax=2500)
     plt.show()
-    #
+
     # plt.ion()
-    # plt.show()
     # for i in xrange(len(G_0._support)):
     #     plt.imshow(G_0._support[i])
     #     plt.draw()
     #     plt.pause(1)
-
+    # plt.pause(3)
+    # plt.show()
+    #
 
