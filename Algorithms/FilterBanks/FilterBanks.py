@@ -295,13 +295,14 @@ class Upsample(FilterBankNodeBase):
 
         # Build the support with zero offset vector
         u, v = np.meshgrid(np.arange(2*s) - s, np.arange(2*s) - s)
-        sup_1 = (self._core_matrix[0, 0] * u + self._core_matrix[1, 0] * v <= s//2) & \
+        sup_1 = (self._core_matrix[0, 0] * u + self._core_matrix[1, 0] * v < s//2) & \
                 (self._core_matrix[0, 0] * u + self._core_matrix[1, 0] * v >= -s//2)
-        sup_2 = (self._core_matrix[0, 1] * u + self._core_matrix[1, 1] * v <= s//2) & \
+        sup_2 = (self._core_matrix[0, 1] * u + self._core_matrix[1, 1] * v < s//2) & \
                 (self._core_matrix[0, 1] * u + self._core_matrix[1, 1] * v >= -s//2)
         support = (sup_1 & sup_2).astype('int')[s//2:s//2+s, s//2:s//2+s]
 
-        cvs = [V.dot(np.linalg.inv(self._core_matrix).T) for V in self._coset_vectors]
+        cvs = [V.dot(np.linalg.inv(self._core_matrix)) for V in self._coset_vectors]
+        print cvs
         self._support = [np.roll(
                             np.roll(
                                 support, int(np.round(V[0] * s)), axis=1),
@@ -316,6 +317,7 @@ if __name__ == '__main__':
 
     im = imread('../../Materials/lena_gray.png')[:,:,0]
 
+    '''Introduce phase shift in image domain'''
     # # These phase shift operations can produce fan filter effect, but introduce the need to do fftshift
     # x, y = np.meshgrid(np.arange(im.shape[0]), np.arange(im.shape[1]))
     # px = np.zeros(im.shape, dtype=np.complex)
@@ -358,7 +360,15 @@ if __name__ == '__main__':
     #         # axs[i//ncol, i%ncol].imshow(np.abs(H_0._outflow[:,:,i]), vmin=0, vmax=2500)
     # plt.show()
 
-
+    '''Test actual recovered image'''
+    # H_0 = Downsample()
+    # # H_1 = Downsample()
+    # # H_0.set_core_matrix(np.array([[2, 0], [0, 1]]))
+    # H_0.set_core_matrix(np.array([[2, -2], [3, 2]]))
+    # G_0 = Upsample()
+    # # G_1 = Upsample()
+    # # G_0.set_core_matrix(np.array([[2, 0], [0, 1]]))
+    # G_0.set_core_matrix(np.array([[2, -2], [3, 2]]))
     # print out.shape
     # plt.scatter(out[:,:,0].flatten(), out[:,:,1].flatten())
     # plt.imshow(out[:,:,0])
@@ -369,10 +379,11 @@ if __name__ == '__main__':
     # plt.imshow((np.abs(H_0._outflow[:,:,0]) + np.roll(np.abs(H_0._outflow[:,:,1]), 1)), vmin=0, vmax=2500)
     # plt.show()
 
+    '''Test frequency support calculation'''
     H_0 = Downsample()
-    H_0.set_core_matrix(np.array([[2, -2], [3, 2]]))
+    H_0.set_core_matrix(np.array([[2, -1], [1, 2]]))
     G_0 = Upsample()
-    G_0.set_core_matrix(np.array([[2, -2], [3, 2]]))
+    G_0.set_core_matrix(np.array([[2, -1], [1, 2]]))
     G_0._inflow = np.random.random([512,512, 2])
     G_0._calculate_freq_support()
     M = len(G_0._support)
@@ -384,15 +395,12 @@ if __name__ == '__main__':
                 axs[i].imshow(G_0._support[i])
             except:
                 pass
-            # axs[i].imshow(ifft2(H_0._outflow[:,:,i]).real)
-            # axs[i].imshow(np.abs(H_0._outflow[:,:,i]), vmin=0, vmax=2500)
         else:
             axs[i//ncol, i%ncol].imshow(G_0._support[i])
-    #         # axs[i//ncol, i%ncol].imshow(np.abs(H_0._outflow[:,:,i]), vmin=0, vmax=2500)
     # # axs[-1, -1].imshow(np.sum(np.stack([G_0._support[i].astype('int') for i in xrange(M)]), 0))
     plt.imshow(np.sum(np.stack([G_0._support[i].astype('int') for i in xrange(M)]), 0))
     plt.show()
 
-    print np.sum(np.sum(np.stack([G_0._support[i].astype('int') for i in xrange(M)]), 0) != 1)
+
 
 
