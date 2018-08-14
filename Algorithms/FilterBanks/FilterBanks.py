@@ -1,5 +1,4 @@
 import numpy as np
-from scipy.ndimage.interpolation import map_coordinates
 from abc import ABCMeta, abstractmethod
 
 class FilterBankNodeBase(object):
@@ -49,6 +48,7 @@ class FilterBankNodeBase(object):
 
         self._coset_vectors = []
         M = int(np.abs(np.linalg.det(self._core_matrix)))
+        M = int(np.sqrt(2*M**2))
         inv_coremat = np.linalg.inv(self._core_matrix.T)    # coset vectors always calculated in Fourier space
 
         # For 2D case
@@ -60,7 +60,14 @@ class FilterBankNodeBase(object):
                 if np.all((0<=f) & (f < 1.)):
                     self._coset_vectors.append(v.astype('int'))
 
+        if not self._check_unitary_matrix():
+            print "Warning! Core matrix is not unitary!"
 
+    def _check_unitary_matrix(self):
+        assert not self._core_matrix is None
+
+        return np.all(np.matmul(np.conjugate(self._core_matrix.T), self._core_matrix) \
+               / np.abs(np.linalg.det(self._core_matrix)) == np.eye(self._core_matrix.shape[0]))
 
     @staticmethod
     def periodic_modulus_2d(arr, x_range, y_range):
@@ -131,7 +138,17 @@ class Downsample(FilterBankNodeBase):
         The decimation follows the equation:
 
         .. math ::
-            X_k(\omega)=\frac{1}{|\text{det}(M)|} \sum_{m\in \mathcal{N} (M^T)} \exp{iM^{-T}}
+            X_k(\omega)=\frac{1}{|\text{det}(M)|} \sum_{m\in \mathcal{N} (M^T)} X(M^{-T}(\omega - s^T m))}
+
+        where:
+            :math:`\omega` is the frequency index,
+            :math:`m` is the coset vector and
+            :math:`s` is the frequency space size vector.
+
+        The algorithm relies on the rearrangement of the index :math:`\omega`, which is equivalent to the
+        down-sampling/decimation in the frequency space. Note that the algorithm assumed the origin of the
+        input image locates at the center of the image space. It is recommended to use the `np.roll`
+        method to translate the origin.
 
         """
         assert isinstance(inflow, np.ndarray), "Input must be numpy array"
@@ -169,9 +186,13 @@ class Downsample(FilterBankNodeBase):
                     if o[i,j, 0] % 1 == 0 and o[i,j,1] % 1 == 0:
                         # Note that the matrix are caculate in x, y convention while in numpy it has a [y, x]
                         # convention
-                        outflow[k][i,j] = self._inflow[int(o[i,j,1] + s//2),
-                                                       int(o[i,j,0] + s//2)] \
-                                          / float(M)
+                        try:
+                            outflow[k][i,j] = self._inflow[int(o[i,j,1] + s//2),
+                                                           int(o[i,j,0] + s//2)] \
+                                              / float(M)
+                        except:
+                            print i, j
+                            pass
 
 
         self._omega = omega # temp
@@ -201,6 +222,16 @@ class Upsample(FilterBankNodeBase):
         self._calculate_coset()
 
     def _core_function(self, inflow):
+        r"""Upsample/Interpolation core function
+
+        The interpolation is done in frequency space following the equation:
+
+        .. math::
+            X_u(\omega)=\sum_{k} X_k(M^{-T}\omega + s^T m_k}
+
+        :param inflow:
+        :return:
+        """
         assert isinstance(inflow, np.ndarray), "Input must be numpy array"
         assert inflow.ndim == 3
         assert inflow.shape[0] == inflow.shape[1]
@@ -214,9 +245,8 @@ class Upsample(FilterBankNodeBase):
         self._uv = np.stack([u, v], axis=-1)    # temp
         omega = np.stack([u, v], axis=-1)
 
-        print self._coset_vectors
         # Bands are differed by coset vector calculated from the transpose of the core_matrix
-        omega = [(omega).dot(self._core_matrix.T) + v for v in self._coset_vectors]
+        omega = [(omega).dot(self._core_matrix.T) + s*v for v in self._coset_vectors]
 
         # Periodic modulus
         omega = [FilterBankNodeBase.periodic_modulus_2d(o, [-s//2, s//2-1], [-s//2, s//2-1]) for o in omega]
@@ -229,8 +259,6 @@ class Upsample(FilterBankNodeBase):
             for j in xrange(inflow.shape[1]):
                 for m in xrange(M):
                     for k, o in enumerate(omega):
-                        # if m == 0:
-                        #     continue
                         if o[i,j, 0] % 1 == 0 and o[i,j,1] % 1 == 0:
                             try:
                                 # Note that the matrix are caculate in x, y convention while in numpy it has a [y, x]
@@ -256,9 +284,9 @@ class Upsample(FilterBankNodeBase):
         """
         assert not self._core_matrix is None
 
-        self._core_matrix = self._core_matrix.T
         super(Upsample, self)._calculate_coset()
-        self._core_matrix = self._core_matrix.T
+        inv_core_mat = np.linalg.inv(self._core_matrix)
+        self._coset_vectors = [self._core_matrix.dot(inv_core_mat.dot(v)) for v in self._coset_vectors]
 
     def _calculate_freq_support(self):
         assert not self._inflow is None
@@ -266,15 +294,19 @@ class Upsample(FilterBankNodeBase):
         s = self._inflow.shape[0]
 
         # Build the support with zero offset vector
-        u, v = np.meshgrid(np.arange(s) - s//2, np.arange(s)-s//2)
-        sup_1 = (self._core_matrix[0, 0] * u + self._core_matrix[1, 0] * v < s//2) & \
-                (self._core_matrix[0, 0] * u + self._core_matrix[1, 0] * v > -s//2)
-        sup_2 = (self._core_matrix[0, 1] * u + self._core_matrix[1, 1] * v < s//2) & \
-                (self._core_matrix[0, 1] * u + self._core_matrix[1, 1] * v > -s//2)
-        support = (sup_1 & sup_2).astype('int')
+        u, v = np.meshgrid(np.arange(2*s) - s, np.arange(2*s) - s)
+        sup_1 = (self._core_matrix[0, 0] * u + self._core_matrix[1, 0] * v <= s//2) & \
+                (self._core_matrix[0, 0] * u + self._core_matrix[1, 0] * v >= -s//2)
+        sup_2 = (self._core_matrix[0, 1] * u + self._core_matrix[1, 1] * v <= s//2) & \
+                (self._core_matrix[0, 1] * u + self._core_matrix[1, 1] * v >= -s//2)
+        support = (sup_1 & sup_2).astype('int')[s//2:s//2+s, s//2:s//2+s]
 
         cvs = [V.dot(np.linalg.inv(self._core_matrix).T) for V in self._coset_vectors]
-        self._support = [np.roll(np.roll(support, int(V[0] * s), axis=1), int(V[1] * s), axis=0) for V in cvs]
+        self._support = [np.roll(
+                            np.roll(
+                                support, int(np.round(V[0] * s)), axis=1),
+                            int(np.round(V[1] * s)), axis=0) for V in cvs]
+
 
 
 if __name__ == '__main__':
@@ -295,44 +327,72 @@ if __name__ == '__main__':
     s_fftim = fftshift(fft2(ifftshift(im)))
 
 
-    H_0 = Downsample()
-    H_0.set_core_matrix(np.array([[2, 0], [0, 1]]))
-    G_0 = Upsample()
-    G_0.set_core_matrix(np.array([[2, 0], [0, 1]]))
-    G_0.hook_input(H_0)
-    # out = H_0.run(s_fftim)
-    out = G_0.run(s_fftim)
+    # H_0 = Downsample()
+    # # H_1 = Downsample()
+    # # H_0.set_core_matrix(np.array([[2, 0], [0, 1]]))
+    # H_0.set_core_matrix(np.array([[2, -2], [3, 2]]))
+    # G_0 = Upsample()
+    # # G_1 = Upsample()
+    # # G_0.set_core_matrix(np.array([[2, 0], [0, 1]]))
+    # G_0.set_core_matrix(np.array([[2, -2], [3, 2]]))
+    #
+    # # H_1.hook_input(H_0)
+    # # G_1.hook_input(H_1)
+    # G_0.hook_input(H_0)
+    # # out = H_0.run(s_fftim)
+    # out = G_0.run(s_fftim)
 
-    M = H_0._outflow.shape[-1]
-    ncol=2
-    fig, axs = plt.subplots(M / ncol, ncol)
-    for i in xrange(M):
-        if M <= ncol:
-            # axs[i].imshow(ifft2(fftshift(H_0._outflow[:,:,i])).real)
-            # axs[i].imshow(ifft2(H_0._outflow[:,:,i]).real)
-            axs[i].imshow(np.abs(H_0._outflow[:,:,i]), vmin=0, vmax=2500)
-        else:
-            # axs[i//ncol, i%ncol].imshow(ifft2(fftshift(H_0._outflow[:,:,i])).real)
-            axs[i//ncol, i%ncol].imshow(np.abs(H_0._outflow[:,:,i]), vmin=0, vmax=2500)
-    plt.show()
+    # M = H_0._outflow.shape[-1]
+    # ncol=2
+    # fig, axs = plt.subplots(M / ncol, ncol)
+    # for i in xrange(M):
+    #     if M <= ncol:
+    #         try:
+    #             axs[i].imshow(ifft2(fftshift(H_0._outflow[:,:,i])).real)
+    #         except:
+    #             pass
+    #         # axs[i].imshow(ifft2(H_0._outflow[:,:,i]).real)
+    #         # axs[i].imshow(np.abs(H_0._outflow[:,:,i]), vmin=0, vmax=2500)
+    #     else:
+    #         axs[i//ncol, i%ncol].imshow(ifft2(fftshift(H_0._outflow[:,:,i])).real)
+    #         # axs[i//ncol, i%ncol].imshow(np.abs(H_0._outflow[:,:,i]), vmin=0, vmax=2500)
+    # plt.show()
 
 
     # print out.shape
     # plt.scatter(out[:,:,0].flatten(), out[:,:,1].flatten())
     # plt.imshow(out[:,:,0])
-    plt.imshow(ifft2(fftshift(out)).real)           # Some times need fftshift, sometimes doesn't
+    # plt.imshow(ifft2(fftshift(out)).real)           # Some times need fftshift, sometimes doesn't
     # plt.imshow(np.fft.ifft2(out).real)
     # plt.imshow((np.abs(s_fftim)), vmin=0, vmax=3500)
     # plt.imshow((np.abs(out)), vmin=0, vmax=3500)
     # plt.imshow((np.abs(H_0._outflow[:,:,0]) + np.roll(np.abs(H_0._outflow[:,:,1]), 1)), vmin=0, vmax=2500)
+    # plt.show()
+
+    H_0 = Downsample()
+    H_0.set_core_matrix(np.array([[2, -2], [3, 2]]))
+    G_0 = Upsample()
+    G_0.set_core_matrix(np.array([[2, -2], [3, 2]]))
+    G_0._inflow = np.random.random([512,512, 2])
+    G_0._calculate_freq_support()
+    M = len(G_0._support)
+    ncol=3
+    fig, axs = plt.subplots(int(np.ceil(M / float(ncol))), int(ncol))
+    for i in xrange(M):
+        if M <= ncol:
+            try:
+                axs[i].imshow(G_0._support[i])
+            except:
+                pass
+            # axs[i].imshow(ifft2(H_0._outflow[:,:,i]).real)
+            # axs[i].imshow(np.abs(H_0._outflow[:,:,i]), vmin=0, vmax=2500)
+        else:
+            axs[i//ncol, i%ncol].imshow(G_0._support[i])
+    #         # axs[i//ncol, i%ncol].imshow(np.abs(H_0._outflow[:,:,i]), vmin=0, vmax=2500)
+    # # axs[-1, -1].imshow(np.sum(np.stack([G_0._support[i].astype('int') for i in xrange(M)]), 0))
+    plt.imshow(np.sum(np.stack([G_0._support[i].astype('int') for i in xrange(M)]), 0))
     plt.show()
 
-    # plt.ion()
-    # for i in xrange(len(G_0._support)):
-    #     plt.imshow(G_0._support[i])
-    #     plt.draw()
-    #     plt.pause(1)
-    # plt.pause(3)
-    # plt.show()
-    #
+    print np.sum(np.sum(np.stack([G_0._support[i].astype('int') for i in xrange(M)]), 0) != 1)
+
 
