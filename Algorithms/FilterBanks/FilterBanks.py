@@ -48,7 +48,6 @@ class FilterBankNodeBase(object):
 
         self._coset_vectors = []
         M = int(np.abs(np.linalg.det(self._core_matrix)))
-        M = int(np.sqrt(2*M**2))
         inv_coremat = np.linalg.inv(self._core_matrix.T)    # coset vectors always calculated in Fourier space
 
         # For 2D case
