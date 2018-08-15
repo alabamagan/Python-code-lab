@@ -59,14 +59,7 @@ class FilterBankNodeBase(object):
                 if np.all((0<=f) & (f < 1.)):
                     self._coset_vectors.append(v.astype('int'))
 
-        if not self._check_unitary_matrix():
-            print "Warning! Core matrix is not unitary!"
 
-    def _check_unitary_matrix(self):
-        assert not self._core_matrix is None
-
-        return np.all(np.matmul(np.conjugate(self._core_matrix.T), self._core_matrix) \
-               / np.abs(np.linalg.det(self._core_matrix)) == np.eye(self._core_matrix.shape[0]))
 
     @staticmethod
     def periodic_modulus_2d(arr, x_range, y_range):
