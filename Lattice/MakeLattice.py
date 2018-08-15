@@ -51,9 +51,9 @@ def plotScatter(d):
 
     fig, ax = plt.subplots(1, 1)
     X = np.array(zip(d._uv[:,:,0].flatten(), d._uv[:,:,1].flatten()))
-    XYX = np.array(zip(d._omega[0][:,:,0].flatten(), d._omega[0][:,:,1].flatten()))
-    XYX2 = np.array(zip(d._omega[1][:,:,0].flatten() + d._coset_vectors[1][0],
-                        d._omega[1][:,:,1].flatten() + d._coset_vectors[1][1]))
+    XYX = np.array(zip(d._omega[0][:,:,1].flatten(), d._omega[0][:,:,0].flatten()))
+    XYX2 = np.array(zip(d._omega[1][:,:,1].flatten() + d._coset_vectors[1][1],
+                        d._omega[1][:,:,0].flatten() + d._coset_vectors[1][0]))
 
     ax.scatter(X[:,0], X[:,1])
     ax.scatter(XYX[:,0], XYX[:,1], s=5)
@@ -82,13 +82,13 @@ if __name__ == '__main__':
     test._basis = np.array(B2)
     lattice2 = test.sample_lattice(3)
 
-    d = Upsample()
-    d.set_core_matrix(np.array([[2, 0], [0, 1]]))
-    out = d.run(np.random.random([16,16, 2]))
+    d = Downsample()
+    d.set_core_matrix(np.array([[2, 0], [1, 1]]))
+    out = d.run(np.random.random([16,16]))
 
 
-    plotTransformQuiver(d, 1)
-    # plotScatter(d)
+    # plotTransformQuiver(d, 1)
+    plotScatter(d)
 
 
 
