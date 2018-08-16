@@ -5,9 +5,11 @@ class FilterBankNodeBase(object):
     __metaclass__ = ABCMeta
     def __init__(self, inNode=None):
         self._input_node = None
+        self._inflow = None
         self._referencing_node = []
         self._core_matrix = None
         self._coset_vectors = []
+        self._shift = 0
         self.hook_input(inNode)
         pass
 
@@ -59,6 +61,41 @@ class FilterBankNodeBase(object):
                 if np.all((0<=f) & (f < 1.)):
                     self._coset_vectors.append(v.astype('int'))
 
+    @staticmethod
+    def _frequency_modulation(freq_im, factor):
+        r"""Modulate the frequency by the input factor vector.
+
+        """
+        assert isinstance(freq_im, np.ndarray)
+
+        s = freq_im.shape[0]
+
+        if isinstance(factor, float):
+            assert 0 < factor < 1
+
+            shift = int(np.round(s * factor))
+            return np.roll(np.roll(freq_im, shift, axis=0), shift, axis=1)
+        elif isinstance(factor, np.ndarray):
+            assert factor.ndim == 1
+            assert factor.size == 2
+
+            yshift, xshift = [int(np.round(factor[i] * s)) for i in xrange(2)]
+            return np.roll(np.roll(freq_im, xshift, axis=0), yshift, axis=1)
+        else:
+            raise TypeError("Input must be a float number or np.ndarray!")
+
+    def set_shift(self, factor):
+        if not (isinstance(factor, np.ndarray)
+                or isinstance(factor, float)
+                or isinstance(factor, list)
+                or isinstance(factor, tuple)):
+            raise TypeError("Input must be a float number or np.ndarray or a tuple/list!")
+
+        if isinstance(factor, tuple) or isinstance(factor, list):
+            assert len(factor) == 2
+            factor = np.array(factor)
+
+        self._shift = factor
 
 
     @staticmethod
@@ -154,6 +191,9 @@ class Downsample(FilterBankNodeBase):
         else:
             self._inflow = np.copy(inflow)
 
+        if np.any(self._shift != 0):
+            self._inflow = self._frequency_modulation(self._inflow, self._shift)
+
         s = inflow.shape[0]
 
         u, v = np.meshgrid(np.arange(s) - s//2, np.arange(s)-s//2)
@@ -192,6 +232,9 @@ class Downsample(FilterBankNodeBase):
 
         self._omega = omega # temp
         self._outflow = np.stack(outflow, -1)
+        if np.any(self._shift != 0):
+            self._outflow = np.fft.fftshift(self._outflow)
+        #     self._outflow = self._frequency_modulation(self._outflow, self._shift - 1.)
         return self._outflow
 
     def get_lower_subband(self):
