@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from Algorithms.FilterBanks.FilterBanks import Downsample, Upsample
+from Algorithms.FilterBanks.TwoBandFilters import ParalleloidDecimator
 
 class Lattice2D(object):
     def __init__(self):
@@ -23,14 +24,15 @@ class Lattice2D(object):
 def plotTransformQuiver(d, F=5):
     fig, ax = plt.subplots(1, 1)
     X = np.array(zip(d._uv[:,:,0].flatten(), d._uv[:,:,1].flatten()))
-    XYX = np.array(zip(d._omega[0][:,:,0].flatten(), d._omega[0][:,:,1].flatten()))
-    XYX2 = np.array(zip(d._omega[1][:,:,0].flatten(), d._omega[1][:,:,1].flatten()))
+    XYX = np.array(zip(d._omega[0][:,:,1].flatten(), d._omega[0][:,:,0].flatten()))
+    XYX2 = np.array(zip(d._omega[1][:,:,1].flatten(), d._omega[1][:,:,0].flatten()))
 
     ax.scatter(X[:,0], X[:,1])
-    ax.scatter(XYX2[:,0], XYX2[:,1], s=5)
-    ax.quiver(d._uv[:,:,0].flatten()[::F], d._uv[:,:,1].flatten()[::F] + d._uv[:,:,0].flatten()[::F] * 0.05,
-              d._omega[1][:,:,0].flatten()[::F] - d._uv[:,:,0].flatten()[::F],
-              d._omega[1][:,:,1].flatten()[::F] - d._uv[:,:,1].flatten()[::F],
+    ax.scatter(XYX[:,0], XYX[:,1], s=5)
+    # ax.quiver(d._uv[:,:,0].flatten()[::F], d._uv[:,:,1].flatten()[::F] + d._uv[:,:,0].flatten()[::F] * 0.05,
+    ax.quiver(d._uv[:,:,1].flatten()[::F], d._uv[:,:,0].flatten()[::F],
+              d._omega[0][:,:,1].flatten()[::F] - d._uv[:,:,1].flatten()[::F],
+              d._omega[0][:,:,0].flatten()[::F] - d._uv[:,:,0].flatten()[::F],
               # d._omega[1][:,:,0].flatten()[::F] - d._omega[0][:,:,0].flatten()[::F],
               # d._omega[1][:,:,1].flatten()[::F] - d._omega[0][:,:,1].flatten()[::F],
               scale=1, scale_units='xy', alpha=0.5, width=0.002)
@@ -52,11 +54,11 @@ def plotScatter(d):
     fig, ax = plt.subplots(1, 1)
     X = np.array(zip(d._uv[:,:,0].flatten(), d._uv[:,:,1].flatten()))
     XYX = np.array(zip(d._omega[0][:,:,1].flatten(), d._omega[0][:,:,0].flatten()))
-    XYX2 = np.array(zip(d._omega[1][:,:,1].flatten() + d._coset_vectors[1][1],
-                        d._omega[1][:,:,0].flatten() + d._coset_vectors[1][0]))
+    XYX2 = np.array(zip(d._omega[1][:,:,1].flatten(),
+                        d._omega[1][:,:,0].flatten()))
 
     ax.scatter(X[:,0], X[:,1])
-    ax.scatter(XYX[:,0], XYX[:,1], s=5)
+    ax.scatter(XYX[:,0], XYX[:,1], s=5, c='b')
     ax.scatter(XYX2[:,0], XYX2[:,1], s=5, c='r')
     ax.spines['left'].set_position('center')
     ax.spines['right'].set_color('none')
@@ -82,13 +84,14 @@ if __name__ == '__main__':
     test._basis = np.array(B2)
     lattice2 = test.sample_lattice(3)
 
-    d = Downsample()
-    d.set_core_matrix(np.array([[2, 0], [1, 1]]))
-    out = d.run(np.random.random([16,16]))
+    d = ParalleloidDecimator('2c')
+    # d.set_core_matrix(np.array([[1, -1], [0, 2]]))
+    # d.set_core_matrix(np.array([[2, 0], [1, 1]]))
+    out = d.run(np.random.random([16, 16]))
 
 
-    # plotTransformQuiver(d, 1)
-    plotScatter(d)
+    plotTransformQuiver(d, 2)
+    # plotScatter(d)
 
 
 

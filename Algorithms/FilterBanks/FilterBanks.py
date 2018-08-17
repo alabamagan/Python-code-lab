@@ -157,8 +157,8 @@ class Downsample(FilterBankNodeBase):
     def __init__(self, inNode=None):
         FilterBankNodeBase.__init__(self, inNode)
         self._outflow = None
-        self._core_matrix = np.array([[1,  1],
-                                      [1, -1]])
+        self._core_matrix = np.array([[1, -1],
+                                      [1,  1]])
         self._calculate_coset()
 
     def _core_function(self, inflow):
@@ -255,8 +255,8 @@ class Upsample(FilterBankNodeBase):
     def __init__(self, inNode=None):
         FilterBankNodeBase.__init__(self, inNode)
 
-        self._core_matrix = np.array([[1,  1],
-                                      [1, -1]])
+        self._core_matrix = np.array([[1, -1],
+                                      [1,  1]])
         self._calculate_coset()
 
     def _core_function(self, inflow):
@@ -277,6 +277,9 @@ class Upsample(FilterBankNodeBase):
 
         self._inflow = np.copy(inflow)
         self._calculate_freq_support()
+        if np.any(self._shift != 0):
+            self._inflow = np.fft.fftshift(self._inflow)
+
         s = inflow.shape[0]
 
         u, v = np.meshgrid(np.arange(s) - s//2, np.arange(s)-s//2)
@@ -310,8 +313,13 @@ class Upsample(FilterBankNodeBase):
                             except:
                                 pass
         self._omega = omega # temp
+        if np.any(self._shift != 0):
+            outflow = self._frequency_modulation(outflow, self._shift)
+            self._support = [self._frequency_modulation(np.fft.fftshift(s), self._shift) for s in self._support]
+            # outflow = np.fft.fftshift(outflow)
         self._outflow = outflow
-        return self._outflow
+        #     self._outflow = np.fft.fftshift(self._outflow)
+        return outflow
 
     def _calculate_coset(self):
         """
